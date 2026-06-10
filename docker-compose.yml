@@ -1,0 +1,32 @@
+# Despliegue de la solución (se completa en PC4/TB2 según la arquitectura del enunciado:
+# UI + Server API + Nodos + MongoDB + Redis). En PC3 solo se usa el servicio trainer.
+services:
+  trainer:
+    build:
+      context: ./go
+      dockerfile: Dockerfile
+    command: ["/app/trainer", "-datos", "/data/datos_limpios.csv", "-modelo", "/data/model.json"]
+    volumes:
+      - ./data:/data
+
+  # --- PC4 (descomentar e implementar) ---
+  # api:
+  #   build: { context: ./go, dockerfile: Dockerfile.api }
+  #   ports: ["8080:8080"]
+  #   depends_on: [mongo, redis, node1, node2]
+  # node1:
+  #   build: { context: ./go, dockerfile: Dockerfile.node }
+  # node2:
+  #   build: { context: ./go, dockerfile: Dockerfile.node }
+  # mongo:
+  #   image: mongo:7
+  #   volumes: [mongo_data:/data/db]
+  # redis:
+  #   image: redis:7
+  # --- TB2 ---
+  # frontend:
+  #   build: ./frontend
+  #   ports: ["4200:80"]
+
+# volumes:
+#   mongo_data:

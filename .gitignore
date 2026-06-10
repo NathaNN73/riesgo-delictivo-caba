@@ -1,0 +1,7 @@
+data/raw/
+data/datos_limpios.csv
+data/model.json
+go/bin/
+__pycache__/
+
+.atl
