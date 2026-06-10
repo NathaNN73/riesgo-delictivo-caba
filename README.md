@@ -1,54 +1,60 @@
-# Sistema concurrente de predicción de riesgo delictivo por zona y franja horaria (CABA)
-
-CC65 – Programación Concurrente y Distribuida | Entregable 1 (PC3)
+# Prediccion de riesgo delictivo por zona y franja horaria (CABA)
 
 Predice el nivel de riesgo delictivo de cada **barrio** de la Ciudad de Buenos Aires
-para cada **hora del día** y **día de la semana**, a partir del dataset abierto
-"Delitos" (Ministerio de Justicia y Seguridad, https://data.buenosaires.gob.ar/dataset/delitos),
-con más de 1,1 millones de registros (2016–2023).
+para cada **hora del dia** y **dia de la semana**, usando el dataset abierto
+"Delitos" (Ministerio de Justicia y Seguridad) con mas de 1 millon de registros (2016-2023).
 
-## Estructura (preparada para PC4 y TB2)
+## Estructura
 
 ```
-python/limpieza.py        Limpieza de datos (PC3, no concurrente por diseño)
-go/internal/loader        Carga concurrente del CSV (fan-out/fan-in con channels)
-go/internal/dataset       Celdas (barrio, hora, día), target P75 y features
-go/internal/ml            Regresión logística con entrenamiento paralelo
-go/internal/metrics       Accuracy, precision, recall, F1
-go/cmd/trainer            Entrada del PC3 (carga + entrenamiento + model.json)
-go/cmd/api                PC4: API REST/WS coordinadora del clúster (placeholder)
-go/cmd/node               PC4: nodo de cómputo ML por TCP (placeholder)
-docker-compose.yml        Despliegue (trainer hoy; api/nodos/mongo/redis/UI en PC4-TB2)
+python/limpieza.py          Limpieza y preparacion del dataset
+go/internal/loader          Carga concurrente del CSV (fan-out/fan-in)
+go/internal/dataset         Features y etiquetado (percentil 75)
+go/internal/ml              Regresion logistica con entrenamiento paralelo
+go/internal/metrics         Accuracy, precision, recall, F1
+go/cmd/trainer              Entrenamiento y exportacion del modelo
 ```
 
 ## Uso
 
 ```bash
-# 1. Limpieza (descarga 2016–2023 y genera data/datos_limpios.csv)
+# 1. Limpieza (descarga los CSV y genera data/datos_limpios.csv)
 cd python && pip install -r requirements.txt && python limpieza.py
 
-# 2. Entrenamiento concurrente
-cd ../go && go run ./cmd/trainer -datos ../data/datos_limpios.csv -epocas 300
+# 2. Entrenamiento
+cd ../go && go build -o trainer.exe ./cmd/trainer
+./trainer.exe -datos ../data/datos_limpios.csv -epocas 300
 
-# Verificación de ausencia de condiciones de carrera
+# 3. Verificar ausencia de condiciones de carrera
 go run -race ./cmd/trainer -datos ../data/datos_limpios.csv -epocas 60
 
-# Con Docker
-docker compose run --rm trainer
+# 4. Benchmark de speedup
+./benchmark.ps1 -Epochs 10000
+python ../python/graficar.py
 ```
 
-## Diseño concurrente (resumen)
+## Diseño concurrente
 
-1. **Carga**: un productor lee bloques de 10 000 filas → channel → pool de
-   workers (uno por CPU) parsea y cuenta delitos por celda en mapas locales →
-   channel → agregador fusiona (fan-out/fan-in, sin memoria compartida).
-2. **Entrenamiento**: descenso de gradiente síncrono con paralelismo de datos;
-   cada worker calcula el gradiente parcial de su shard y el coordinador agrega
-   y actualiza pesos en un único punto (sin locks, verificado con `-race`).
-3. En PC4, los workers de entrenamiento pasan a ser **nodos remotos por TCP** y
-   `model.json` se convierte en el insumo de la **API de predicciones** (<100 ms).
+- **Carga**: productor lee bloques de 10 000 filas, N workers parsean en paralelo
+  y cuentan delitos por celda en mapas locales, agregador fusiona. Sin memoria compartida.
+- **Entrenamiento**: descenso de gradiente sincrono con paralelismo de datos.
+  Cada worker calcula el gradiente parcial de su shard, el coordinador agrega y
+  actualiza pesos. Verificado con `-race`.
 
-## Git Flow
+## Resultados del benchmark
 
-Ramas: `main` (releases), `develop`, `feature/*`. Ver historial de commits como
-evidencia en el informe.
+Con 10 000 epocas sobre ~1M de registros en una maquina de 8 nucleos fisicos (16 logicos):
+
+| Workers | Tiempo (ms) | SpeedUp |
+|---------|-------------|---------|
+| 1       | 4108        | 1.00x   |
+| 4       | 1430        | 2.87x   |
+| 8       | 1220        | 3.37x   |
+| 16      | 1122        | 3.66x   |
+| 24      | 1096        | 3.75x   |
+| 32      | 1115        | 3.69x   |
+| 64      | 1158        | 3.55x   |
+| 128     | 1272        | 3.23x   |
+
+SpeedUp maximo: **3.75x** con 24 workers. Con mas de 24 workers el rendimiento
+se degrada por sobresuscripcion de goroutines.
