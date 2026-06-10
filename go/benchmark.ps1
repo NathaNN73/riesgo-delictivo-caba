@@ -1,9 +1,7 @@
 # Benchmark de entrenamiento concurrente - riesgo-delictivo
 # Mide tiempo total de ejecución variando la cantidad de workers.
-# Cada configuración se repite N veces para promediar.
-
 param(
-    [int[]]$Workers = @(1, 2, 4, 8, 12, 16, 20, 24),
+    [int[]]$Workers = @(1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128),
     [int]$Runs = 5,
     [int]$Epochs = 300,
     [string]$DataPath = "..\data\datos_limpios.csv",
@@ -13,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 $startDir = Get-Location
 
-# 1. Compilar una sola vez
+# Compilar una sola vez
 Write-Host "=== Compilando trainer.exe ==="
 Set-Location -LiteralPath $PSScriptRoot
 $build = go build -o trainer.exe .\cmd\trainer 2>&1
@@ -33,7 +31,7 @@ if (-not (Test-Path -LiteralPath $DataPath)) {
     exit 1
 }
 
-# 2. Benchmark
+# Benchmark
 $results = @()
 $totalRuns = $Workers.Count * $Runs
 $current = 0
@@ -58,8 +56,8 @@ foreach ($w in $Workers) {
         }
 
         # Extraer tiempos parciales (null-safe)
-        # La línea de carga:    [carga    ] ... en 95ms
-        # La línea de entrena:  [entrena  ] 10 épocas con 4 workers en 2ms
+        # Carga:    [carga    ] ... en 95ms / ejemplo
+        # Entrenamiento:  [entrena  ] 10 épocas con 4 workers en 2ms / ejemplo
         $cargaLines   = @($output | Select-String "\[carga")
         $entrenaLines = @($output | Select-String "workers en")
 
@@ -93,17 +91,17 @@ foreach ($w in $Workers) {
     Write-Host ""
 }
 
-# 3. Guardar resultados
+# Resultados
 $csvPath = Join-Path $PSScriptRoot "benchmark_results.csv"
 $results | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Encoding UTF8
 Set-Location -LiteralPath $startDir
 
-# 4. Resumen
+# Guardar resultados en CSV
 Write-Host "=== Resultados guardados en benchmark_results.csv ===" -ForegroundColor Green
 Write-Host ""
 $results | Format-Table Workers, Run, TotalMs, CargaMs, EntrenaMs -AutoSize
 
-# 5. Promedios por cantidad de workers
+# Promedios por cantidad de workers
 Write-Host "=== Promedios por workers ===" -ForegroundColor Yellow
 $results | Group-Object Workers | ForEach-Object {
     $avg = ($_.Group | Measure-Object TotalMs -Average).Average
@@ -118,5 +116,3 @@ $results | Group-Object Workers | ForEach-Object {
         Speedup   = if ($_.Name -eq 1) { 1.0 } else { [math]::Round($baseAvg / $avg, 2) }
     }
 } | Format-Table -AutoSize
-
-Write-Host "Listo. Abrí benchmark_results.csv en Excel/Python para graficar."
