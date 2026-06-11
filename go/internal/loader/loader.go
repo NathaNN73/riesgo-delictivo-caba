@@ -21,7 +21,6 @@ import (
 )
 
 // Registro es una fila limpia del dataset.
-// Esquema: anio,mes,dia_semana,hora,barrio_id,comuna,tipo,uso_arma,uso_moto,latitud,longitud
 type Registro struct {
 	Anio      int
 	Mes       int
@@ -113,7 +112,7 @@ func CargarConcurrente(ruta string, numWorkers int) (*Resultado, error) {
 		}
 	}()
 
-	// Cierra el canal de parciales cuando todos los workers terminan.
+	
 	go func() {
 		wg.Wait()
 		close(parciales)

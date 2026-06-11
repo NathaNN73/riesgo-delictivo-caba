@@ -1,4 +1,3 @@
-// Package metrics calcula métricas de clasificación binaria.
 package metrics
 
 import (
@@ -11,7 +10,6 @@ type Reporte struct {
 	TP, TN, FP, FN                  int
 }
 
-// Evaluar aplica el modelo sobre un conjunto y devuelve el reporte.
 func Evaluar(m *ml.LogReg, ejemplos []dataset.Ejemplo, corte float64) Reporte {
 	var r Reporte
 	for _, ej := range ejemplos {

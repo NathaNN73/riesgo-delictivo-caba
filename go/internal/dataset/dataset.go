@@ -1,10 +1,3 @@
-// Package dataset transforma los conteos por celda (salida del loader) en
-// ejemplos etiquetados para el modelo, según la sección 2.3 del informe:
-//
-//	alto_riesgo[celda] = 1 si conteo >= percentil 75 de todos los conteos
-//
-// Features (sección 3.2): hora cíclica (sin, cos), día de semana, barrio,
-// comuna y mes-implícito vía celdas; el bias se agrega como x0 = 1.
 package dataset
 
 import (
@@ -23,11 +16,11 @@ type Ejemplo struct {
 
 // Dataset etiquetado, con metadatos para reconstruir predicciones en la API (PC4).
 type Dataset struct {
-	Ejemplos   []Ejemplo
-	NumFeats   int
-	Umbral     int // conteo del percentil 75 usado como corte
-	MaxBarrio  int
-	FeatNames  []string
+	Ejemplos  []Ejemplo
+	NumFeats  int
+	Umbral    int // conteo del percentil 75 usado como corte
+	MaxBarrio int
+	FeatNames []string
 }
 
 // Construir genera un ejemplo por celda observada, etiquetado contra el P75.
@@ -65,7 +58,6 @@ func Construir(res *loader.Resultado, semilla int64) *Dataset {
 }
 
 // Features construye el vector de entrada para una combinación zona-tiempo.
-// Es la MISMA función que usará la API de predicciones en PC4.
 func Features(hora, diaSemana, barrioID, comuna, maxBarrio int) []float64 {
 	finde := 0.0
 	if diaSemana >= 5 { // sábado o domingo
@@ -86,11 +78,4 @@ func Features(hora, diaSemana, barrioID, comuna, maxBarrio int) []float64 {
 func (d *Dataset) Dividir(propTest float64) (train, test []Ejemplo) {
 	n := int(float64(len(d.Ejemplos)) * (1 - propTest))
 	return d.Ejemplos[:n], d.Ejemplos[n:]
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

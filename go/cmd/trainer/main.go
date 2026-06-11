@@ -1,4 +1,4 @@
-// Trainer: programa principal del Entregable 1 (PC3).
+// Trainer
 //
 //	Etapa 1: carga concurrente del CSV limpio (loader, fan-out/fan-in).
 //	Etapa 2: construcción de celdas y target (dataset, percentil 75).
@@ -8,7 +8,7 @@
 // Uso:
 //
 //	go run ./cmd/trainer -datos ../data/datos_limpios.csv -epocas 300
-//	go run -race ./cmd/trainer ...   (verificación de condiciones de carrera)
+//	go run -race ./cmd/trainer ...   para detectar condiciones de carrera
 package main
 
 import (
