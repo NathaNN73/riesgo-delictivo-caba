@@ -1,14 +1,3 @@
-// Package loader implementa la carga y procesamiento concurrente del dataset
-// limpio (datos_limpios.csv) usando el patrón fan-out / fan-in:
-//
-//	productor (lee bloques) ──> chan bloques ──> N workers (parsean + cuentan)
-//	                                                  │
-//	                            chan parciales <──────┘
-//	                                  │
-//	                              agregador (fusiona conteos por celda)
-//
-// La comunicación es exclusivamente por channels: no hay memoria compartida
-// mutable entre workers, por lo que no existen condiciones de carrera.
 package loader
 
 import (
@@ -43,10 +32,10 @@ type Celda struct {
 
 // Resultado de la carga concurrente.
 type Resultado struct {
-	Conteos       map[Celda]int   // delitos históricos por celda
-	ComunaBarrio  map[int]int     // barrio_id -> comuna (para features)
-	TotalLeidos   int             // filas procesadas
-	TotalInvalido int             // filas descartadas por parseo
+	Conteos       map[Celda]int // delitos históricos por celda
+	ComunaBarrio  map[int]int   // barrio_id -> comuna (para features)
+	TotalLeidos   int           // filas procesadas
+	TotalInvalido int           // filas descartadas por parseo
 }
 
 const tamBloque = 10000 // filas por bloque enviado a los workers
@@ -112,7 +101,6 @@ func CargarConcurrente(ruta string, numWorkers int) (*Resultado, error) {
 		}
 	}()
 
-	
 	go func() {
 		wg.Wait()
 		close(parciales)

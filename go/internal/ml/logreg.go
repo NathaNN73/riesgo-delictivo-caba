@@ -1,19 +1,3 @@
-// Package ml implementa una regresión logística con entrenamiento
-// genuinamente paralelo (paralelismo de datos):
-//
-//   - los ejemplos se dividen en P shards, uno por worker;
-//   - en cada época, cada worker calcula EN PARALELO el gradiente parcial
-//     de la entropía cruzada sobre su shard y lo envía por un channel;
-//   - el coordinador suma los gradientes y actualiza los pesos en un único
-//     punto del programa (descenso de gradiente síncrono).
-//
-// Los pesos solo se escriben en el coordinador y los workers reciben una
-// copia de solo lectura por época: no hay condiciones de carrera (verificable
-// con `go run -race`).
-//
-// En PC4 los workers locales se reemplazan por nodos remotos del clúster que
-// envían sus gradientes parciales por TCP a la API coordinadora: la lógica de
-// agregación de este paquete se mantiene igual.
 package ml
 
 import (
@@ -25,13 +9,12 @@ import (
 	"riesgo-delictivo/internal/dataset"
 )
 
-// LogReg es el modelo: un vector de pesos.
+// LogReg es el modelo
 type LogReg struct {
-	Pesos []float64 `json:"pesos"`
-	// Metadatos para que la API (PC4) reconstruya features consistentes.
-	FeatNames []string `json:"feat_names"`
-	MaxBarrio int      `json:"max_barrio"`
-	Umbral    int      `json:"umbral_p75"`
+	Pesos     []float64 `json:"pesos"`
+	FeatNames []string  `json:"feat_names"`
+	MaxBarrio int       `json:"max_barrio"`
+	Umbral    int       `json:"umbral_p75"`
 }
 
 // Config del entrenamiento paralelo.
