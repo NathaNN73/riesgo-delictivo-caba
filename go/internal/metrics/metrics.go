@@ -5,33 +5,51 @@ import (
 	"riesgo-delictivo/internal/ml"
 )
 
+// Reporte contiene las metricas de clasificacion binaria.
 type Reporte struct {
-	Accuracy, Precision, Recall, F1 float64
-	TP, TN, FP, FN                  int
+	Accuracy  float64
+	Precision float64
+	Recall    float64
+	F1        float64
+	TP        int // verdaderos positivos
+	TN        int // verdaderos negativos
+	FP        int // falsos positivos
+	FN        int // falsos negativos
 }
 
-func Evaluar(m *ml.LogReg, ejemplos []dataset.Ejemplo, corte float64) Reporte {
-	var r Reporte
+// Evaluar clasifica cada ejemplo con el modelo y devuelve el reporte.
+func Evaluar(modelo *ml.LogReg, ejemplos []dataset.Ejemplo, umbral float64) Reporte {
+	r := Reporte{}
+
 	for _, ej := range ejemplos {
-		pred := 0.0
-		if m.Predecir(ej.X) >= corte {
-			pred = 1.0
+		// Clasificar: 1 si P(alto_riesgo) >= umbral, 0 si no
+		prob := modelo.Predecir(ej.X)
+		predicho := 0.0
+		if prob >= umbral {
+			predicho = 1.0
 		}
+
+		// Actualizar matriz de confusion
 		switch {
-		case pred == 1 && ej.Y == 1:
+		case predicho == 1.0 && ej.Y == 1.0:
 			r.TP++
-		case pred == 0 && ej.Y == 0:
+		case predicho == 0.0 && ej.Y == 0.0:
 			r.TN++
-		case pred == 1 && ej.Y == 0:
+		case predicho == 1.0 && ej.Y == 0.0:
 			r.FP++
-		default:
+		case predicho == 0.0 && ej.Y == 1.0:
 			r.FN++
 		}
 	}
+
+	// Calcular metricas derivadas
 	total := float64(r.TP + r.TN + r.FP + r.FN)
-	if total > 0 {
-		r.Accuracy = float64(r.TP+r.TN) / total
+	if total == 0 {
+		return r
 	}
+
+	r.Accuracy = float64(r.TP+r.TN) / total
+
 	if r.TP+r.FP > 0 {
 		r.Precision = float64(r.TP) / float64(r.TP+r.FP)
 	}
@@ -39,7 +57,8 @@ func Evaluar(m *ml.LogReg, ejemplos []dataset.Ejemplo, corte float64) Reporte {
 		r.Recall = float64(r.TP) / float64(r.TP+r.FN)
 	}
 	if r.Precision+r.Recall > 0 {
-		r.F1 = 2 * r.Precision * r.Recall / (r.Precision + r.Recall)
+		r.F1 = 2.0 * r.Precision * r.Recall / (r.Precision + r.Recall)
 	}
+
 	return r
 }
