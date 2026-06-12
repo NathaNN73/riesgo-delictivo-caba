@@ -5,3 +5,4 @@ go/bin/
 __pycache__/
 
 .atl
+*.exe
