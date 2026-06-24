@@ -7,23 +7,45 @@ services:
     volumes:
       - ./data:/data
 
-  # api:
-  #   build: { context: ./go, dockerfile: Dockerfile.api }
-  #   ports: ["8080:8080"]
-  #   depends_on: [mongo, redis, node1, node2]
-  # node1:
-  #   build: { context: ./go, dockerfile: Dockerfile.node }
-  # node2:
-  #   build: { context: ./go, dockerfile: Dockerfile.node }
-  # mongo:
-  #   image: mongo:7
-  #   volumes: [mongo_data:/data/db]
-  # redis:
-  #   image: redis:7
-  # --- TB2 ---
+  api:
+    build:
+      context: ./go
+      dockerfile: Dockerfile.api
+    ports: ["8080:8080"]
+    depends_on: [mongo, redis, node1, node2]
+    environment:
+      NODE1_ADDR: node1:9001
+      NODE2_ADDR: node2:9002
+      MONGO_URI: mongodb://mongo:27017
+      REDIS_ADDR: redis:6379
+      DATOS_PATH: /data/datos_limpios.csv
+    volumes:
+      - ./data:/data
+
+  node1:
+    build:
+      context: ./go
+      dockerfile: Dockerfile.node
+    command: ["/app/node", "-port", "9001"]
+    ports: ["9001:9001"]
+
+  node2:
+    build:
+      context: ./go
+      dockerfile: Dockerfile.node
+    command: ["/app/node", "-port", "9002"]
+    ports: ["9002:9002"]
+
+  mongo:
+    image: mongo:7
+    volumes: [mongo_data:/data/db]
+
+  redis:
+    image: redis:7-alpine
+
   # frontend:
   #   build: ./frontend
   #   ports: ["4200:80"]
 
-# volumes:
-#   mongo_data:
+volumes:
+  mongo_data:
