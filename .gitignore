@@ -1,6 +1,7 @@
 data/raw/
 data/datos_limpios.csv
 data/model.json
+data/dataset_celdas.csv
 go/bin/
 __pycache__/
 
