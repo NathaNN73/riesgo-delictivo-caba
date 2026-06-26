@@ -34,7 +34,7 @@ func main() {
 	fmt.Printf("=== CC65 PC3 | Riesgo delictivo por zona y hora (Buenos Aires) ===\n")
 	fmt.Printf("workers: %d (CPUs: %d)\n\n", *workers, runtime.NumCPU())
 
-	// ---- Etapa 1: carga concurrente ----
+	// Carga concurrente
 	t0 := time.Now()
 	res, err := loader.CargarConcurrente(*rutaDatos, *workers)
 	if err != nil {
@@ -43,13 +43,13 @@ func main() {
 	fmt.Printf("[carga    ] %d registros procesados, %d inválidos, %d celdas (barrio,hora,día) en %v\n",
 		res.TotalLeidos, res.TotalInvalido, len(res.Conteos), time.Since(t0).Round(time.Millisecond))
 
-	// ---- Etapa 2: dataset etiquetado ----
+	// Dataset y división train/test
 	ds := dataset.Construir(res, 42)
 	train, test := ds.Dividir(0.2)
 	fmt.Printf("[dataset  ] umbral P75 = %d delitos/celda | train: %d, test: %d ejemplos\n",
 		ds.Umbral, len(train), len(test))
 
-	// ---- Etapa 3: entrenamiento paralelo ----
+	// Entrenamiento paralelo
 	t1 := time.Now()
 	modelo := ml.Entrenar(train, ds.NumFeats, ml.Config{
 		Epocas:     *epocas,
@@ -65,7 +65,7 @@ func main() {
 	fmt.Printf("[entrena  ] %d épocas con %d workers en %v\n",
 		*epocas, *workers, time.Since(t1).Round(time.Millisecond))
 
-	// ---- Etapa 4: evaluación y exportación ----
+	// Evaluación y exportación
 	rep := metrics.Evaluar(modelo, test, 0.5)
 	fmt.Printf("\n[métricas ] accuracy=%.3f precision=%.3f recall=%.3f f1=%.3f\n",
 		rep.Accuracy, rep.Precision, rep.Recall, rep.F1)
@@ -77,9 +77,6 @@ func main() {
 	if err := modelo.Guardar(*rutaModelo); err != nil {
 		panic(err)
 	}
-	fmt.Printf("[modelo   ] guardado en %s (lo consumirá la API en PC4)\n", *rutaModelo)
+	fmt.Printf("[modelo   ] guardado en %s\n", *rutaModelo)
 
-	// Demostración de predicción (lo que expondrá la API en PC4):
-	ej := dataset.Features(22, 5, 10, 1, ds.MaxBarrio) // sábado 22h, barrio_id=10, comuna 1
-	fmt.Printf("\n[ejemplo  ] P(alto riesgo | sábado 22h, barrio_id=10) = %.2f\n", modelo.Predecir(ej))
 }

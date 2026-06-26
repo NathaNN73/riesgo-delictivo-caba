@@ -19,6 +19,9 @@ services:
       MONGO_URI: mongodb://mongo:27017
       REDIS_ADDR: redis:6379
       DATOS_PATH: /data/datos_limpios.csv
+      EPOCAS_DEFAULT: 1000
+      TASA_DEFAULT: 0.5
+      UMBRAL_DEFAULT: 0.35
     volumes:
       - ./data:/data
 
@@ -26,14 +29,14 @@ services:
     build:
       context: ./go
       dockerfile: Dockerfile.node
-    command: ["/app/node", "-port", "9001"]
+    command: ["-port", "9001"]
     ports: ["9001:9001"]
 
   node2:
     build:
       context: ./go
       dockerfile: Dockerfile.node
-    command: ["/app/node", "-port", "9002"]
+    command: ["-port", "9002"]
     ports: ["9002:9002"]
 
   mongo:

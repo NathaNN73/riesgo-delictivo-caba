@@ -23,8 +23,9 @@ import (
 const comunaDefault = 1
 
 type servidor struct {
-	mu     sync.RWMutex // protege el acceso a modelo
-	modelo *ml.LogReg   // modelo en memoria
+	mu         sync.RWMutex // protege el acceso a modelo
+	modelo     *ml.LogReg   // modelo en memoria
+	entrenando bool         // evita dos entrenamientos simultáneos
 
 	mongo *store.MongoStore
 	redis *store.RedisStore
@@ -166,13 +167,36 @@ func (s *servidor) entrenar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.Lock()
+	if s.entrenando {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "entrenamiento en curso"})
+		return
+	}
+	s.entrenando = true
+	s.mu.Unlock()
+	defer func() { s.mu.Lock(); s.entrenando = false; s.mu.Unlock() }()
+
 	epocas, _ := strconv.Atoi(r.URL.Query().Get("epocas"))
+	if epocas <= 0 {
+		epocas, _ = strconv.Atoi(env("EPOCAS_DEFAULT", "300"))
+	}
 	if epocas <= 0 {
 		epocas = 300
 	}
 	tasa, _ := strconv.ParseFloat(r.URL.Query().Get("tasa"), 64)
 	if tasa <= 0 {
+		tasa, _ = strconv.ParseFloat(env("TASA_DEFAULT", "0.5"), 64)
+	}
+	if tasa <= 0 {
 		tasa = 0.5
+	}
+	umbral, _ := strconv.ParseFloat(r.URL.Query().Get("umbral"), 64)
+	if umbral <= 0 {
+		umbral, _ = strconv.ParseFloat(env("UMBRAL_DEFAULT", "0.35"), 64)
+	}
+	if umbral <= 0 {
+		umbral = 0.35
 	}
 	const l2 = 1e-4
 	const checkpointInterval = 5
@@ -225,7 +249,7 @@ func (s *servidor) entrenar(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	// Evaluación
-	rep := metrics.Evaluar(coord.Modelo, test, 0.5)
+	rep := metrics.Evaluar(coord.Modelo, test, umbral)
 	log.Printf("[entrenar] metrics: acc=%.4f prec=%.4f rec=%.4f f1=%.4f", rep.Accuracy, rep.Precision, rep.Recall, rep.F1)
 
 	// Respuesta
