@@ -47,9 +47,10 @@ services:
   redis:
     image: redis:7-alpine
 
-  # frontend:
-  #   build: ./frontend
-  #   ports: ["4200:80"]
+  # TB2
+  frontend:
+    build: ./frontend
+    ports: ["4200:80"]
 
 volumes:
   mongo_data:

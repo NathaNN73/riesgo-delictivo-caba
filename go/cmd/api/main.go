@@ -126,7 +126,7 @@ func main() {
 
 	addr := ":" + port
 	log.Printf("[api] escuchando en %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, cors(mux)); err != nil {
 		log.Fatalf("[api] servidor: %v", err)
 	}
 }
@@ -514,4 +514,17 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("[api] error codificando respuesta: %v", err)
 	}
+}
+
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
