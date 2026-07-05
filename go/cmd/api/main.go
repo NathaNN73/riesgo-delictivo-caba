@@ -20,12 +20,11 @@ import (
 	"riesgo-delictivo/internal/store"
 )
 
-const comunaDefault = 1
-
 type servidor struct {
-	mu         sync.RWMutex // protege el acceso a modelo
-	modelo     *ml.LogReg   // modelo en memoria
-	entrenando bool         // evita dos entrenamientos simultáneos
+	mu           sync.RWMutex
+	modelo       *ml.LogReg
+	comunaBarrio map[int]int // barrio_id → comuna
+	entrenando   bool
 
 	mongo *store.MongoStore
 	redis *store.RedisStore
@@ -117,6 +116,24 @@ func (s *servidor) predecir(w http.ResponseWriter, r *http.Request) {
 	barrioID, _ := strconv.Atoi(r.URL.Query().Get("barrio_id"))
 	diaSemana, _ := strconv.Atoi(r.URL.Query().Get("dia_semana"))
 
+	if hora < 0 || hora > 23 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "hora debe estar entre 0 y 23"})
+		return
+	}
+	if barrioID < 0 || barrioID > 47 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "barrio_id debe estar entre 0 y 47"})
+		return
+	}
+	if diaSemana < 0 || diaSemana > 6 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "dia_semana debe estar entre 0 y 6"})
+		return
+	}
+
+	umbral, _ := strconv.ParseFloat(env("UMBRAL_DEFAULT", "0.35"), 64)
+	if umbral <= 0 {
+		umbral = 0.35
+	}
+
 	// Leer modelo en memoria
 	s.mu.RLock()
 	modelo := s.modelo
@@ -129,18 +146,26 @@ func (s *servidor) predecir(w http.ResponseWriter, r *http.Request) {
 	// Intenta recuperar prediccion desde Redis
 	if s.redis != nil {
 		if prob, ok := s.redis.GetPrediccion(hora, barrioID, diaSemana); ok {
+			alto := 0
+			if prob >= umbral {
+				alto = 1
+			}
 			if s.mongo != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				_ = s.mongo.RegistrarPrediccion(ctx, hora, barrioID, diaSemana, prob, true)
 				cancel()
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"probabilidad": prob, "desde_cache": true})
+			writeJSON(w, http.StatusOK, map[string]any{"probabilidad": prob, "alto_riesgo": alto, "desde_cache": true})
 			return
 		}
 	}
 
 	// Vector de features.
-	feats := dataset.Features(hora, diaSemana, barrioID, comunaDefault, modelo.MaxBarrio)
+	comuna := s.comunaBarrio[barrioID]
+	if comuna == 0 {
+		comuna = 1
+	}
+	feats := dataset.Features(hora, diaSemana, barrioID, comuna, modelo.MaxBarrio)
 
 	// Predicción.
 	prob := modelo.Predecir(feats)
@@ -158,7 +183,11 @@ func (s *servidor) predecir(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respuesta.
-	writeJSON(w, http.StatusOK, map[string]any{"probabilidad": prob, "desde_cache": false})
+	alto := 0
+	if prob >= umbral {
+		alto = 1
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"probabilidad": prob, "alto_riesgo": alto, "desde_cache": false})
 }
 
 func (s *servidor) entrenar(w http.ResponseWriter, r *http.Request) {
@@ -214,10 +243,22 @@ func (s *servidor) entrenar(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[entrenar] CSV cargado: %d filas válidas, %d inválidas", res.TotalLeidos, res.TotalInvalido)
 
+	// Guardar mapeo barrio→comuna para /predecir
+	s.mu.Lock()
+	s.comunaBarrio = res.ComunaBarrio
+	s.mu.Unlock()
+
 	// Construcción del dataset y división en train/test
 	ds := dataset.Construir(res, 42)
 	train, test := ds.Dividir(0.2)
 	log.Printf("[entrenar] dataset: %d train, %d test, %d feats", len(train), len(test), ds.NumFeats)
+
+	// Exportar celdas etiquetadas para documentación
+	if err := ds.ExportarCSV("/data/dataset_celdas.csv", res); err != nil {
+		log.Printf("[entrenar] exportando celdas: %v", err)
+	} else {
+		log.Printf("[entrenar] celdas exportadas a /data/dataset_celdas.csv")
+	}
 
 	// Coordinador con 2 nodos
 	coord, err := cluster.NewCoordinador(node1, node2, tasa, l2, checkpointInterval, s.mongo, s.redis)

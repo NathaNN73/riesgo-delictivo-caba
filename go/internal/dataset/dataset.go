@@ -1,9 +1,13 @@
 package dataset
 
 import (
+	"encoding/csv"
+	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"sort"
+	"strconv"
 
 	"riesgo-delictivo/internal/loader"
 )
@@ -78,4 +82,33 @@ func Features(hora, diaSemana, barrioID, comuna, maxBarrio int) []float64 {
 func (d *Dataset) Dividir(propTest float64) (train, test []Ejemplo) {
 	n := int(float64(len(d.Ejemplos)) * (1 - propTest))
 	return d.Ejemplos[:n], d.Ejemplos[n:]
+}
+
+// ExportarCSV guarda las celdas con sus parámetros originales y la etiqueta Y.
+// Columnas: hora,barrio_id,dia_semana,conteo,alto_riesgo
+func (d *Dataset) ExportarCSV(ruta string, res *loader.Resultado) error {
+	f, err := os.Create(ruta)
+	if err != nil {
+		return fmt.Errorf("dataset: creando CSV %s: %w", ruta, err)
+	}
+	defer f.Close()
+
+	w := csv.NewWriter(f)
+	defer w.Flush()
+
+	_ = w.Write([]string{"hora", "barrio_id", "dia_semana", "conteo", "alto_riesgo"})
+	for c, n := range res.Conteos {
+		y := "0"
+		if n >= d.Umbral {
+			y = "1"
+		}
+		_ = w.Write([]string{
+			strconv.Itoa(c.Hora),
+			strconv.Itoa(c.BarrioID),
+			strconv.Itoa(c.DiaSemana),
+			strconv.Itoa(n),
+			y,
+		})
+	}
+	return nil
 }
