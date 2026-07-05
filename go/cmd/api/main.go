@@ -37,6 +37,15 @@ type servidor struct {
 
 	mongo *store.MongoStore
 	redis *store.RedisStore
+
+	// metricas del cluster
+	inicio        time.Time
+	totalPred     int64
+	cacheHits     int64
+	sumaLatencia  int64 // microsegundos acumulados
+	epocaActual   int
+	epocasTotales int
+	costoActual   float64
 }
 
 func env(key, def string) string {
@@ -95,6 +104,7 @@ func main() {
 		jwtSecret: jwtSecret,
 		tokenTTL:  tokenTTL,
 		hub:       ws.NewHub(),
+		inicio:    time.Now(),
 	}
 
 	// Carga de modelo
@@ -107,6 +117,7 @@ func main() {
 	mux.HandleFunc("/registro", srv.registro)
 	mux.HandleFunc("/login", srv.login)
 	mux.HandleFunc("/entrenar", srv.autenticar(srv.entrenar))
+	mux.HandleFunc("/metricas", srv.autenticar(srv.metricas))
 
 	logParams := func(k, v string) { log.Printf("[api] %s=%s", k, v) }
 	logParams("NODE1_ADDR", node1)
@@ -248,6 +259,18 @@ func (s *servidor) predecir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	t0 := time.Now()
+	cacheHit := false
+	defer func() {
+		s.mu.Lock()
+		s.totalPred++
+		if cacheHit {
+			s.cacheHits++
+		}
+		s.sumaLatencia += time.Since(t0).Microseconds()
+		s.mu.Unlock()
+	}()
+
 	hora, _ := strconv.Atoi(r.URL.Query().Get("hora"))
 	barrioID, _ := strconv.Atoi(r.URL.Query().Get("barrio_id"))
 	diaSemana, _ := strconv.Atoi(r.URL.Query().Get("dia_semana"))
@@ -282,6 +305,7 @@ func (s *servidor) predecir(w http.ResponseWriter, r *http.Request) {
 	// Intenta recuperar prediccion desde Redis
 	if s.redis != nil {
 		if prob, ok := s.redis.GetPrediccion(hora, barrioID, diaSemana); ok {
+			cacheHit = true
 			alto := 0
 			if prob >= umbral {
 				alto = 1
@@ -406,6 +430,12 @@ func (s *servidor) entrenar(w http.ResponseWriter, r *http.Request) {
 
 	// Entrenamiento distribuido
 	callback := func(epoca int, costo float64) {
+		s.mu.Lock()
+		s.epocaActual = epoca
+		s.epocasTotales = epocas
+		s.costoActual = costo
+		s.mu.Unlock()
+
 		if epoca%50 == 0 || epoca == epocas-1 {
 			log.Printf("[entrenar] época %d costo=%f", epoca, costo)
 			msg, _ := json.Marshal(map[string]any{
@@ -455,6 +485,28 @@ func (s *servidor) entrenar(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- helpers ---
+
+func (s *servidor) metricas(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	latenciaProm := float64(0)
+	if s.totalPred > 0 {
+		latenciaProm = float64(s.sumaLatencia) / float64(s.totalPred) / 1000 // ms
+	}
+	resp := map[string]any{
+		"uptime_segundos":  time.Since(s.inicio).Seconds(),
+		"mongo_conectado":  s.mongo != nil,
+		"redis_conectado":  s.redis != nil && s.redis.Disponible(),
+		"entrenando":       s.entrenando,
+		"epoca_actual":     s.epocaActual,
+		"epocas_totales":   s.epocasTotales,
+		"costo_actual":     s.costoActual,
+		"predicciones":     s.totalPred,
+		"cache_hits":       s.cacheHits,
+		"latencia_prom_ms": latenciaProm,
+	}
+	s.mu.RUnlock()
+	writeJSON(w, http.StatusOK, resp)
+}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

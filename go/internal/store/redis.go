@@ -53,6 +53,10 @@ func (s *RedisStore) Close() error {
 	}
 	return nil
 }
+
+// Disponible indica si Redis está accesible.
+func (s *RedisStore) Disponible() bool { return s.available }
+
 // GetPrediccion recupera la probabilidad cacheada para la celda (hora,barrioID,diaSemana).
 func (s *RedisStore) GetPrediccion(hora, barrioID, diaSemana int) (float64, bool) {
 	key := clavePrediccion(hora, barrioID, diaSemana)
