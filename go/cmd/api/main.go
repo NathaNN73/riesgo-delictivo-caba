@@ -9,9 +9,11 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"riesgo-delictivo/internal/auth"
 	"riesgo-delictivo/internal/cluster"
 	"riesgo-delictivo/internal/dataset"
 	"riesgo-delictivo/internal/loader"
@@ -23,8 +25,11 @@ import (
 type servidor struct {
 	mu           sync.RWMutex
 	modelo       *ml.LogReg
-	comunaBarrio map[int]int // barrio_id → comuna
+	comunaBarrio map[int]int
 	entrenando   bool
+
+	jwtSecret []byte
+	tokenTTL  time.Duration
 
 	mongo *store.MongoStore
 	redis *store.RedisStore
@@ -63,6 +68,8 @@ func main() {
 	redisAddr := env("REDIS_ADDR", "127.0.0.1:6379")
 	datosPath := env("DATOS_PATH", "../data/datos_limpios.csv")
 	port := env("PORT", "8080")
+	jwtSecret := []byte(env("JWT_SECRET", "x027Y5qNzxTUfV1vlCZVX5P0oTIsdbsuGeCqYaEnQ7F"))
+	tokenTTL := 24 * time.Hour
 
 	// MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -78,7 +85,12 @@ func main() {
 		log.Printf("[api] Redis error: %v", err)
 	}
 
-	srv := &servidor{mongo: mongo, redis: redis}
+	srv := &servidor{
+		mongo:     mongo,
+		redis:     redis,
+		jwtSecret: jwtSecret,
+		tokenTTL:  tokenTTL,
+	}
 
 	// Carga de modelo
 	srv.modelo = cargarModelo(redis, mongo)
@@ -86,7 +98,9 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/salud", srv.salud)
 	mux.HandleFunc("/predecir", srv.predecir)
-	mux.HandleFunc("/entrenar", srv.entrenar)
+	mux.HandleFunc("/registro", srv.registro)
+	mux.HandleFunc("/login", srv.login)
+	mux.HandleFunc("/entrenar", srv.autenticar(srv.entrenar))
 
 	logParams := func(k, v string) { log.Printf("[api] %s=%s", k, v) }
 	logParams("NODE1_ADDR", node1)
@@ -104,6 +118,91 @@ func main() {
 
 func (s *servidor) salud(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- auth ---
+
+func (s *servidor) autenticar(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "token requerido"})
+			return
+		}
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if _, err := auth.ValidateToken(token, s.jwtSecret); err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "token inválido o expirado"})
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *servidor) registro(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "método no permitido"})
+		return
+	}
+	var body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" || body.Password == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email y password requeridos"})
+		return
+	}
+	if s.mongo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "MongoDB no disponible"})
+		return
+	}
+	hash, err := auth.HashPassword(body.Password)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "error al procesar contraseña"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := s.mongo.RegistrarUsuario(ctx, body.Email, hash); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"mensaje": "usuario registrado"})
+}
+
+func (s *servidor) login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "método no permitido"})
+		return
+	}
+	var body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" || body.Password == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "email y password requeridos"})
+		return
+	}
+	if s.mongo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "MongoDB no disponible"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	u, err := s.mongo.BuscarUsuario(ctx, body.Email)
+	if err != nil || u == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "credenciales inválidas"})
+		return
+	}
+	if !auth.CheckPassword(body.Password, u.Password) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "credenciales inválidas"})
+		return
+	}
+	token, err := auth.GenerateToken(u.Email, s.jwtSecret, s.tokenTTL)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "error al generar token"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
 func (s *servidor) predecir(w http.ResponseWriter, r *http.Request) {

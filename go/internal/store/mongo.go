@@ -103,6 +103,49 @@ func (s *MongoStore) RegistrarPrediccion(ctx context.Context, hora, barrioID, di
 	return nil
 }
 
+// Usuario representa un usuario registrado en el sistema.
+type Usuario struct {
+	Email    string `bson:"email"`
+	Password string `bson:"password"` // hash bcrypt
+	Rol      string `bson:"rol"`      // "admin" o "usuario"
+}
+
+// RegistrarUsuario inserta un nuevo usuario. Si el email ya existe, devuelve error.
+func (s *MongoStore) RegistrarUsuario(ctx context.Context, email, passwordHash string) error {
+	// Verificar si ya existe
+	var existente Usuario
+	err := s.db.Collection(colUsuarios).FindOne(ctx, bson.M{"email": email}).Decode(&existente)
+	if err == nil {
+		return fmt.Errorf("mongo: el email %s ya está registrado", email)
+	}
+	if err != mongo.ErrNoDocuments {
+		return fmt.Errorf("mongo: verificando email: %w", err)
+	}
+
+	doc := bson.M{
+		"email":    email,
+		"password": passwordHash,
+		"rol":      "usuario",
+	}
+	if _, err := s.db.Collection(colUsuarios).InsertOne(ctx, doc); err != nil {
+		return fmt.Errorf("mongo: insertar usuario: %w", err)
+	}
+	return nil
+}
+
+// BuscarUsuario busca un usuario por email. Devuelve nil si no existe.
+func (s *MongoStore) BuscarUsuario(ctx context.Context, email string) (*Usuario, error) {
+	var u Usuario
+	err := s.db.Collection(colUsuarios).FindOne(ctx, bson.M{"email": email}).Decode(&u)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("mongo: buscar usuario: %w", err)
+	}
+	return &u, nil
+}
+
 // Close desconecta del cliente MongoDB.
 func (s *MongoStore) Close(ctx context.Context) error {
 	if s.client == nil {
