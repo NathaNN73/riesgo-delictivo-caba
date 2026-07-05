@@ -118,6 +118,7 @@ func main() {
 	mux.HandleFunc("/login", srv.login)
 	mux.HandleFunc("/entrenar", srv.autenticar(srv.entrenar))
 	mux.HandleFunc("/metricas", srv.autenticar(srv.metricas))
+	mux.HandleFunc("/predicciones", srv.predicciones)
 
 	logParams := func(k, v string) { log.Printf("[api] %s=%s", k, v) }
 	logParams("NODE1_ADDR", node1)
@@ -306,16 +307,12 @@ func (s *servidor) predecir(w http.ResponseWriter, r *http.Request) {
 	if s.redis != nil {
 		if prob, ok := s.redis.GetPrediccion(hora, barrioID, diaSemana); ok {
 			cacheHit = true
-			alto := 0
-			if prob >= umbral {
-				alto = 1
-			}
 			if s.mongo != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				_ = s.mongo.RegistrarPrediccion(ctx, hora, barrioID, diaSemana, prob, true)
 				cancel()
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"probabilidad": prob, "alto_riesgo": alto, "desde_cache": true})
+			writeJSON(w, http.StatusOK, map[string]any{"probabilidad": prob, "nivel_riesgo": nivelRiesgo(prob), "desde_cache": true})
 			return
 		}
 	}
@@ -343,11 +340,7 @@ func (s *servidor) predecir(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Respuesta.
-	alto := 0
-	if prob >= umbral {
-		alto = 1
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"probabilidad": prob, "alto_riesgo": alto, "desde_cache": false})
+	writeJSON(w, http.StatusOK, map[string]any{"probabilidad": prob, "nivel_riesgo": nivelRiesgo(prob), "desde_cache": false})
 }
 
 func (s *servidor) entrenar(w http.ResponseWriter, r *http.Request) {
@@ -508,11 +501,48 @@ func (s *servidor) metricas(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (s *servidor) predicciones(w http.ResponseWriter, r *http.Request) {
+	hora, _ := strconv.Atoi(r.URL.Query().Get("hora"))
+	diaSemana, _ := strconv.Atoi(r.URL.Query().Get("dia_semana"))
+
+	s.mu.RLock()
+	modelo := s.modelo
+	comunas := s.comunaBarrio
+	s.mu.RUnlock()
+
+	if modelo == nil || len(modelo.Pesos) == 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "modelo no entrenado"})
+		return
+	}
+
+	resultados := make(map[string]float64)
+	for barrioID := 0; barrioID <= modelo.MaxBarrio; barrioID++ {
+		comuna := 1
+		if c, ok := comunas[barrioID]; ok {
+			comuna = c
+		}
+		feats := dataset.Features(hora, diaSemana, barrioID, comuna, modelo.MaxBarrio)
+		resultados[strconv.Itoa(barrioID)] = modelo.Predecir(feats)
+	}
+	writeJSON(w, http.StatusOK, resultados)
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("[api] error codificando respuesta: %v", err)
+	}
+}
+
+func nivelRiesgo(prob float64) string {
+	switch {
+	case prob < 0.35:
+		return "bajo"
+	case prob < 0.60:
+		return "medio"
+	default:
+		return "alto"
 	}
 }
 
