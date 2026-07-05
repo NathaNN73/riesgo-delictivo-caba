@@ -20,6 +20,9 @@ import (
 	"riesgo-delictivo/internal/metrics"
 	"riesgo-delictivo/internal/ml"
 	"riesgo-delictivo/internal/store"
+	"riesgo-delictivo/internal/ws"
+
+	"golang.org/x/net/websocket"
 )
 
 type servidor struct {
@@ -30,6 +33,7 @@ type servidor struct {
 
 	jwtSecret []byte
 	tokenTTL  time.Duration
+	hub       *ws.Hub
 
 	mongo *store.MongoStore
 	redis *store.RedisStore
@@ -90,6 +94,7 @@ func main() {
 		redis:     redis,
 		jwtSecret: jwtSecret,
 		tokenTTL:  tokenTTL,
+		hub:       ws.NewHub(),
 	}
 
 	// Carga de modelo
@@ -97,6 +102,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/salud", srv.salud)
+	mux.Handle("/ws", websocket.Handler(srv.websocket))
 	mux.HandleFunc("/predecir", srv.predecir)
 	mux.HandleFunc("/registro", srv.registro)
 	mux.HandleFunc("/login", srv.login)
@@ -203,6 +209,37 @@ func (s *servidor) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
+// --- websocket ---
+
+func (s *servidor) websocket(wsconn *websocket.Conn) {
+	defer wsconn.Close()
+	log.Printf("[ws] cliente conectado")
+
+	// Suscribir a broadcast de entrenamiento
+	ch, cancelar := s.hub.Suscribir()
+	defer cancelar()
+
+	// Goroutine: reenviar broadcast al cliente
+	go func() {
+		for msg := range ch {
+			if err := websocket.Message.Send(wsconn, string(msg)); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Leer mensajes del cliente
+	var msg string
+	for {
+		if err := websocket.Message.Receive(wsconn, &msg); err != nil {
+			log.Printf("[ws] cliente desconectado: %v", err)
+			return
+		}
+		// Echo: devolver el mismo mensaje (el frontend puede usarlo para ping)
+		websocket.Message.Send(wsconn, msg)
+	}
 }
 
 func (s *servidor) predecir(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +408,13 @@ func (s *servidor) entrenar(w http.ResponseWriter, r *http.Request) {
 	callback := func(epoca int, costo float64) {
 		if epoca%50 == 0 || epoca == epocas-1 {
 			log.Printf("[entrenar] época %d costo=%f", epoca, costo)
+			msg, _ := json.Marshal(map[string]any{
+				"tipo":  "progreso_entrenamiento",
+				"epoca": epoca,
+				"costo": costo,
+				"total": epocas,
+			})
+			s.hub.Broadcast(msg)
 		}
 	}
 	if err := coord.EntrenarDistribuido(train, ds.NumFeats, epocas, callback); err != nil {
