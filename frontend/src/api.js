@@ -51,6 +51,13 @@ export async function metricas() {
   return d;
 }
 
+export async function prediccionesTodas(hora, diaSemana) {
+  const r = await fetch(`${API}/predicciones?hora=${hora}&dia_semana=${diaSemana}`);
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error);
+  return d;
+}
+
 export function wsUrl() {
   return `ws://localhost:8080/ws`;
 }
