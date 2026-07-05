@@ -14,60 +14,57 @@ const BARRIOS = {
 };
 const DIAS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
 
-export default function Dashboard() {
-  const [hora, setHora] = useState(22);
-  const [barrio, setBarrio] = useState(20);
-  const [dia, setDia] = useState(5);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState("");
+const card = { background:"#fff", borderRadius:12, padding:32, boxShadow:"0 2px 12px rgba(0,0,0,.06)" };
+const label = { display:"block", marginBottom:4, fontWeight:600, fontSize:13, color:"#555" };
+const field = { display:"block", width:"100%", padding:"10px 12px", borderRadius:8, border:"1px solid #ddd",
+  fontSize:14, marginBottom:16, background:"#fafafa" };
+const btn = { width:"100%", padding:"14px", background:"linear-gradient(135deg,#0d47a1,#1565c0)",
+  color:"#fff",border:"none",borderRadius:8,fontSize:16,fontWeight:700,cursor:"pointer",marginTop:4 };
 
-  const consultar = async () => {
-    setError(""); setResult(null);
-    try {
-      const r = await predecir(hora, barrio, dia);
-      setResult(r);
-    } catch (e) {
-      setError(e.message);
-    }
-  };
+const riskColors = { 1: { bg:"#ffebee", border:"#ef5350", color:"#c62828", label:"ALTO" },
+  0: { bg:"#e8f5e9", border:"#66bb6a", color:"#2e7d32", label:"BAJO" } };
+
+export default function Dashboard() {
+  const [h,setH]=useState(22); const [b,setB]=useState(20); const [d,setD]=useState(5);
+  const [r,setR]=useState(null); const [e,setE]=useState("");
+
+  const q = async () => { setE(""); try { setR(await predecir(h,b,d)); } catch(ex) { setE(ex.message); } };
 
   return (
-    <div style={{ maxWidth: 500, margin: "40px auto" }}>
-      <h2>Consultar riesgo delictivo</h2>
-      <label>Hora (0-23)</label>
-      <input type="number" min={0} max={23} value={hora} onChange={e => setHora(+e.target.value)} style={inputStyle} />
-
-      <label>Barrio</label>
-      <select value={barrio} onChange={e => setBarrio(+e.target.value)} style={inputStyle}>
-        {Object.entries(BARRIOS).map(([id, name]) => (
-          <option key={id} value={id}>{name}</option>
-        ))}
-      </select>
-
-      <label>Día</label>
-      <select value={dia} onChange={e => setDia(+e.target.value)} style={inputStyle}>
-        {DIAS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-      </select>
-
-      <button onClick={consultar} style={{ ...primaryBtn, width: "100%", marginTop: 10 }}>
-        Consultar
-      </button>
-
-      {error && <p style={{ color: "red", marginTop: 10 }}>{error}</p>}
-
-      {result && (
-        <div style={{ marginTop: 20, padding: 16, background: result.alto_riesgo ? "#ffebee" : "#e8f5e9", borderRadius: 8 }}>
-          <p style={{ fontSize: 24, fontWeight: "bold", margin: 0 }}>
-            {(result.probabilidad * 100).toFixed(1)}%
-          </p>
-          <p style={{ margin: "4px 0", color: result.alto_riesgo ? "#c62828" : "#2e7d32" }}>
-            Riesgo {result.alto_riesgo ? "ALTO" : "BAJO"} {result.desde_cache ? "(cache)" : ""}
-          </p>
+    <div style={card}>
+      <h2 style={{fontSize:24,fontWeight:700,marginBottom:24}}>Consultar riesgo delictivo</h2>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16}}>
+        <div>
+          <label style={label}>Hora (0-23)</label>
+          <input type="number" min={0} max={23} value={h} onChange={e=>setH(+e.target.value)} style={field} />
+        </div>
+        <div>
+          <label style={label}>Barrio</label>
+          <select value={b} onChange={e=>setB(+e.target.value)} style={field}>
+            {Object.entries(BARRIOS).map(([id,name])=><option key={id} value={id}>{name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={label}>Día</label>
+          <select value={d} onChange={e=>setD(+e.target.value)} style={field}>
+            {DIAS.map((n,i)=><option key={i} value={i}>{n}</option>)}
+          </select>
+        </div>
+      </div>
+      <button onClick={q} style={btn}>🔍 Consultar</button>
+      {e && <p style={{color:"#ef5350",marginTop:12,fontSize:14}}>{e}</p>}
+      {r && (
+        <div style={{marginTop:20,
+          background:riskColors[r.alto_riesgo].bg,
+          border:`2px solid ${riskColors[r.alto_riesgo].border}`,
+          borderRadius:12,padding:24,textAlign:"center" }}>
+          <p style={{fontSize:48,fontWeight:800,margin:0,color:riskColors[r.alto_riesgo].color}}>
+            {(r.probabilidad*100).toFixed(1)}%</p>
+          <p style={{fontSize:18,fontWeight:600,color:riskColors[r.alto_riesgo].color,margin:"4px 0"}}>
+            Riesgo {riskColors[r.alto_riesgo].label}</p>
+          <p style={{fontSize:12,color:"#888"}}>{r.desde_cache ? "⚡ desde caché" : "🧠 calculado"}</p>
         </div>
       )}
     </div>
   );
 }
-
-const inputStyle = { display: "block", width: "100%", padding: 8, marginBottom: 10, borderRadius: 4, border: "1px solid #ccc" };
-const primaryBtn = { padding: "8px 20px", background: "#1a237e", color: "white", border: "none", borderRadius: 4, cursor: "pointer" };
