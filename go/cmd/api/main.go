@@ -35,6 +35,14 @@ type servidor struct {
 	tokenTTL  time.Duration
 	hub       *ws.Hub
 
+	// ultimo resultado de entrenamiento
+	ultimoTrainSize  int
+	ultimoTestSize   int
+	ultimaAccuracy   float64
+	ultimaPrecision  float64
+	ultimoRecall     float64
+	ultimoF1         float64
+
 	mongo *store.MongoStore
 	redis *store.RedisStore
 
@@ -459,6 +467,16 @@ func (s *servidor) entrenar(w http.ResponseWriter, r *http.Request) {
 	rep := metrics.Evaluar(coord.Modelo, test, umbral)
 	log.Printf("[entrenar] metrics: acc=%.4f prec=%.4f rec=%.4f f1=%.4f", rep.Accuracy, rep.Precision, rep.Recall, rep.F1)
 
+	// Guardar para /metricas
+	s.mu.Lock()
+	s.ultimoTrainSize = len(train)
+	s.ultimoTestSize = len(test)
+	s.ultimaAccuracy = rep.Accuracy
+	s.ultimaPrecision = rep.Precision
+	s.ultimoRecall = rep.Recall
+	s.ultimoF1 = rep.F1
+	s.mu.Unlock()
+
 	// Respuesta
 	writeJSON(w, http.StatusOK, map[string]any{
 		"epocas":     epocas,
@@ -483,19 +501,36 @@ func (s *servidor) metricas(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	latenciaProm := float64(0)
 	if s.totalPred > 0 {
-		latenciaProm = float64(s.sumaLatencia) / float64(s.totalPred) / 1000 // ms
+		latenciaProm = float64(s.sumaLatencia) / float64(s.totalPred) / 1000
+	}
+	tieneModelo := s.modelo != nil && len(s.modelo.Pesos) > 0
+	feats := 0; maxB := 0; umb := 0
+	if tieneModelo {
+		feats = len(s.modelo.FeatNames)
+		maxB = s.modelo.MaxBarrio
+		umb = s.modelo.Umbral
 	}
 	resp := map[string]any{
-		"uptime_segundos":  time.Since(s.inicio).Seconds(),
-		"mongo_conectado":  s.mongo != nil,
-		"redis_conectado":  s.redis != nil && s.redis.Disponible(),
-		"entrenando":       s.entrenando,
-		"epoca_actual":     s.epocaActual,
-		"epocas_totales":   s.epocasTotales,
-		"costo_actual":     s.costoActual,
-		"predicciones":     s.totalPred,
-		"cache_hits":       s.cacheHits,
-		"latencia_prom_ms": latenciaProm,
+		"uptime_segundos":    time.Since(s.inicio).Seconds(),
+		"mongo_conectado":    s.mongo != nil,
+		"redis_conectado":    s.redis != nil && s.redis.Disponible(),
+		"entrenando":         s.entrenando,
+		"epoca_actual":       s.epocaActual,
+		"epocas_totales":     s.epocasTotales,
+		"costo_actual":       s.costoActual,
+		"predicciones":       s.totalPred,
+		"cache_hits":         s.cacheHits,
+		"latencia_prom_ms":   latenciaProm,
+		"modelo_entrenado":   tieneModelo,
+		"modelo_feats":       feats,
+		"modelo_max_barrio":  maxB,
+		"modelo_umbral":      umb,
+		"train_size":         s.ultimoTrainSize,
+		"test_size":          s.ultimoTestSize,
+		"ultima_accuracy":    s.ultimaAccuracy,
+		"ultima_precision":   s.ultimaPrecision,
+		"ultimo_recall":      s.ultimoRecall,
+		"ultimo_f1":          s.ultimoF1,
 	}
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, resp)

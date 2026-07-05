@@ -20,9 +20,9 @@ const BARRIO_COORDS = {
 };
 
 function colorForRisk(prob) {
-  if (prob >= 0.6) return "#c62828";
-  if (prob >= 0.35) return "#ff9800";
-  return "#2e7d32";
+  if (prob >= 0.6) return "#9F2F2D";
+  if (prob >= 0.35) return "#956400";
+  return "#346538";
 }
 
 export default function MapView({ predicciones, barrioId, onSelect }) {
@@ -40,7 +40,6 @@ export default function MapView({ predicciones, barrioId, onSelect }) {
     mapObj.current = map;
   }, []);
 
-  // Actualizar círculos cuando cambian las predicciones
   useEffect(() => {
     const map = mapObj.current;
     if (!map || !predicciones) return;
@@ -50,21 +49,22 @@ export default function MapView({ predicciones, barrioId, onSelect }) {
     Object.entries(BARRIO_COORDS).forEach(([id, coords]) => {
       const prob = predicciones[id] || 0;
       const el = document.createElement("div");
-      el.style.cssText = `width:18px;height:18px;border-radius:50%;background:${colorForRisk(prob)};
-        border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3);cursor:pointer`;
-      el.title = `Barrio ${id}: ${(prob*100).toFixed(1)}%`;
+      el.style.cssText = `width:14px;height:14px;border-radius:50%;background:${colorForRisk(prob)};
+        border:2px solid rgba(255,255,255,.85);box-shadow:0 1px 3px rgba(0,0,0,.15);cursor:pointer;transition:width .15s,height .15s,margin .15s`;
+      el.dataset.originalSize = "14";
+      el.onmouseenter = () => { el.style.width = "20px"; el.style.height = "20px"; el.style.margin = "-3px 0 0 -3px"; };
+      el.onmouseleave = () => { el.style.width = "14px"; el.style.height = "14px"; el.style.margin = "0"; };
       el.onclick = () => onSelect && onSelect(parseInt(id));
       const marker = new maplibregl.Marker({ element: el }).setLngLat(coords).addTo(map);
       markersRef.current.push(marker);
     });
   }, [predicciones, onSelect]);
 
-  // Volar al barrio seleccionado
   useEffect(() => {
     if (!mapObj.current) return;
     const coords = BARRIO_COORDS[barrioId] || CENTRO;
     mapObj.current.flyTo({ center: coords, zoom: 14, duration: 800 });
   }, [barrioId]);
 
-  return <div ref={mapRef} style={{ width:"100%", height:400, borderRadius:12, overflow:"hidden" }} />;
+  return <div ref={mapRef} style={{ width:"100%", height:420 }} />;
 }
