@@ -9,7 +9,7 @@ import (
 	"sync"
 )
 
-// Registro es una fila limpia del dataset.
+// Registro representa una fila limpia del dataset.
 type Registro struct {
 	Anio      int
 	Mes       int
@@ -23,7 +23,7 @@ type Registro struct {
 	Lat, Lon  float64
 }
 
-// Celda identifica una combinación zona-tiempo: la unidad de predicción.
+// Celda identifica una combinacion zona-tiempo: la unidad de prediccion.
 type Celda struct {
 	BarrioID  int
 	Hora      int
@@ -32,16 +32,16 @@ type Celda struct {
 
 // Resultado de la carga concurrente.
 type Resultado struct {
-	Conteos       map[Celda]int // delitos históricos por celda
+	Conteos       map[Celda]int // delitos historicos por celda
 	ComunaBarrio  map[int]int   // barrio_id -> comuna (para features)
 	TotalLeidos   int           // filas procesadas
 	TotalInvalido int           // filas descartadas por parseo
 }
 
-const tamBloque = 10000 // filas por bloque enviado a los workers
+const tamanioBloque = 10000 // filas por bloque enviado a los workers
 
-// parcial es lo que cada worker devuelve al agregador.
-type parcial struct {
+// resultadoParcial es lo que cada worker devuelve al agregador.
+type resultadoParcial struct {
 	conteos      map[Celda]int
 	comunaBarrio map[int]int
 	leidos       int
@@ -53,11 +53,11 @@ func CargarConcurrente(ruta string, numWorkers int) (*Resultado, error) {
 	f, err := os.Open(ruta)
 	if err != nil {
 		return nil, fmt.Errorf("abriendo %s: %w", ruta, err)
-	}
+	}git add .
 	defer f.Close()
 
 	bloques := make(chan []string, numWorkers*2)
-	parciales := make(chan parcial, numWorkers)
+	parciales := make(chan resultadoParcial, numWorkers)
 
 	// ---- Fan-out: pool de workers ----
 	var wg sync.WaitGroup
@@ -65,35 +65,35 @@ func CargarConcurrente(ruta string, numWorkers int) (*Resultado, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			p := parcial{conteos: map[Celda]int{}, comunaBarrio: map[int]int{}}
+			resultado := resultadoParcial{conteos: map[Celda]int{}, comunaBarrio: map[int]int{}}
 			for bloque := range bloques {
 				for _, linea := range bloque {
-					r, ok := parsearLinea(linea)
+					r, ok := procesarFila(linea)
 					if !ok {
-						p.invalidos++
+						resultado.invalidos++
 						continue
 					}
-					p.leidos++
-					p.conteos[Celda{r.BarrioID, r.Hora, r.DiaSemana}]++
-					p.comunaBarrio[r.BarrioID] = r.Comuna
+					resultado.leidos++
+					resultado.conteos[Celda{r.BarrioID, r.Hora, r.DiaSemana}]++
+					resultado.comunaBarrio[r.BarrioID] = r.Comuna
 				}
 			}
-			parciales <- p // cada worker entrega UNA vez su mapa local
+			parciales <- resultado // cada worker entrega UNA vez su mapa local
 		}()
 	}
 
 	// ---- Productor: lee el archivo y publica bloques ----
 	go func() {
 		defer close(bloques)
-		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 1024*1024), 1024*1024)
-		sc.Scan() // descarta cabecera
-		bloque := make([]string, 0, tamBloque)
-		for sc.Scan() {
-			bloque = append(bloque, sc.Text())
-			if len(bloque) == tamBloque {
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+		scanner.Scan() // descarta cabecera
+		bloque := make([]string, 0, tamanioBloque)
+		for scanner.Scan() {
+			bloque = append(bloque, scanner.Text())
+			if len(bloque) == tamanioBloque {
 				bloques <- bloque
-				bloque = make([]string, 0, tamBloque)
+				bloque = make([]string, 0, tamanioBloque)
 			}
 		}
 		if len(bloque) > 0 {
@@ -108,20 +108,20 @@ func CargarConcurrente(ruta string, numWorkers int) (*Resultado, error) {
 
 	// ---- Fan-in: agregador ----
 	res := &Resultado{Conteos: map[Celda]int{}, ComunaBarrio: map[int]int{}}
-	for p := range parciales {
-		for c, n := range p.conteos {
-			res.Conteos[c] += n
+	for parcial := range parciales {
+		for celda, cantidad := range parcial.conteos {
+			res.Conteos[celda] += cantidad
 		}
-		for b, com := range p.comunaBarrio {
-			res.ComunaBarrio[b] = com
+		for barrio, comuna := range parcial.comunaBarrio {
+			res.ComunaBarrio[barrio] = comuna
 		}
-		res.TotalLeidos += p.leidos
-		res.TotalInvalido += p.invalidos
+		res.TotalLeidos += parcial.leidos
+		res.TotalInvalido += parcial.invalidos
 	}
 	return res, nil
 }
 
-func parsearLinea(linea string) (Registro, bool) {
+func procesarFila(linea string) (Registro, bool) {
 	campos := strings.Split(linea, ",")
 	if len(campos) < 11 {
 		return Registro{}, false
